@@ -8,25 +8,30 @@ model bsevacuation
 
 global {
 	/** Insert the global definitions, variables and actions here */
+	int nb_dead_people <- 0 update: people count(each.trapped=true);
+
 	file building_shp<-file("../includes/bs_buildings_utm.shp");
 	file road_shp <- file("../includes/cleaned.shp");
 	graph road_network;
+	
 	
 	graph from_grid;
 	
 	file dem_file <- grid_file("../includes/bs_srtm30.asc");
 	
-	float frs <- 1 #m/#h;
+	float step <- 1 #minutes;
+	float frs <- (0.015) #m / #minutes;
 	/**frs-- flood rise speed */
-	float ifl <- 9#m update: ifl + frs ;	
+	float ifl <- 12#m update: ifl + (frs * step ) ;	
 	
-	int nb_people <- 100;
+	int nb_people <- 1000;
 
-	geometry shape<-envelope(building_shp);		
+	geometry shape<-envelope(dem_file);		
 
 	init{
-		step <-1#s;
-		time<-6#h;
+		
+		time <- 3 #hours;
+		
 		create building from:building_shp with:[my_type::string(read("type"))];
 		create road from:road_shp;
 		
@@ -44,21 +49,38 @@ global {
 	//	road_network <- as_edge_graph(road where (each.passable = true));		
 	}	
 */	
-	reflex end_simulation when:(time = 10#h) {
-		do pause;}	
+	reflex end_simulation  {
+		if (ifl >= 17#m) {
+			do pause;
+		}
+	}	
 	
 }
 
 grid cell file: dem_file neighbours: 4
 {
 	float flood_level <- 0.0;
-	rgb color <- rgb (0,int(grid_value /120 * 1000), 0) update: rgb (0,int((grid_value - flood_level) /120 * 1000), int((flood_level /120) * 1000));
+	rgb color <- rgb (int(grid_value /40 * 255),int(grid_value /40 * 255), int(grid_value /40 * 255)); /**update: rgb (0,int((grid_value - flood_level) /120 * 1000), int((flood_level /120) * 1000));*/
 	road myroad;
 	bool isflooded;
-	
+	bool isfloodedn;
 	reflex rising{
 		if (ifl > grid_value){
 			flood_level <- ifl - grid_value;
+			if (flood_level > 1.5 #m){
+				color <- #maroon;
+			}
+			else{
+				if (flood_level > 0.5 #m){
+					color <- #red;
+				}
+				else{
+					if (flood_level > 0.0 #m){
+						color <- #yellow;
+					}
+					
+				}
+			}
 		}
 		
 	}
@@ -68,7 +90,16 @@ grid cell file: dem_file neighbours: 4
 			isflooded <- true;
 		}
 	}
-	
+	reflex neighborstatus {
+		list<cell> cellneighbors <- (topology(self) neighbours_of(self)) ;
+		list<cell> flooded <- cellneighbors where (each.isflooded=true);
+		if not (empty(flooded)) {
+			isfloodedn <- true;
+			
+			}	
+		}		
+		
+		
 	
 }
 
@@ -90,7 +121,7 @@ species road {
 	bool passable <- true;
 	aspect geom {
 		if (passable = true) {
-					draw shape color:#black;			
+					draw shape color:#gray;			
 		}
 	}
 	
@@ -104,19 +135,36 @@ species people skills:[moving] {
 	building evacuation_center;
 	float speed <- 5#km/#h;
 	point target;
-	cell mycell;
+	cell mycell <- first(cell overlapping(self)) update: first(cell overlapping(self));
+	bool neighbors_flooded <- false;
 	bool roadflooded;
+	rgb mycolor <- #lime;
+	bool trapped<-false;
+
 	
 	
 	aspect people_display {
-		draw circle(8) color:#yellow;
+		draw circle(8) color:mycolor;
 	}
 	
 	reflex ispassble {
 		
-	}
+		if (mycell != nil ){
+		if (mycell.flood_level > 1){
+			trapped <- true;
+			mycolor <- #white;
+		}
+		}
 		
-	reflex evacuate when: (time>=6#h)  {
+	}
+	
+	reflex floodnear {
+
+
+	}
+	
+		
+	reflex evacuate when: (mycell.isfloodedn = true)  {
 		//target <- any_location_in(evacuation_center);
 		do goto target:target on:road_network;
 		
@@ -130,7 +178,8 @@ species people skills:[moving] {
 experiment bsevacuation type: gui {
 	/** Insert here the definition of the input and output of the model */
 	output {
-
+		monitor "Flood level" value: ifl;
+		monitor "Trapped people" value: nb_dead_people;
 		display map type: opengl{
 	 	 	species cell;			
 			species building aspect:geom;
