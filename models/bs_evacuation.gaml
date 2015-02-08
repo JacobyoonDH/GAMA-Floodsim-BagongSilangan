@@ -12,6 +12,13 @@ global {
 	file road_shp <- file("../includes/cleaned.shp");
 	graph road_network;
 	
+	graph from_grid;
+	
+	file dem_file <- grid_file("../includes/bs_srtm30.asc");
+	
+	float frs <- 1 #m/#h;
+	/**frs-- flood rise speed */
+	float ifl <- 9#m update: ifl + frs ;	
 	
 	int nb_people <- 100;
 
@@ -29,11 +36,39 @@ global {
 			location <- my_house.location;
 			target <- any_location_in(evacuation_center);
 		}
-		road_network <- as_edge_graph(road);
+		road_network <- as_edge_graph(road where (each.passable = true));
+		//from_grid <- grid_cells_to_graph(cell);
+	}
+/* 
+	reflex updateroads {
+	//	road_network <- as_edge_graph(road where (each.passable = true));		
+	}	
+*/	
+	reflex end_simulation when:(time = 10#h) {
+		do pause;}	
+	
+}
+
+grid cell file: dem_file neighbours: 4
+{
+	float flood_level <- 0.0;
+	rgb color <- rgb (0,int(grid_value /120 * 1000), 0) update: rgb (0,int((grid_value - flood_level) /120 * 1000), int((flood_level /120) * 1000));
+	road myroad;
+	bool isflooded;
+	
+	reflex rising{
+		if (ifl > grid_value){
+			flood_level <- ifl - grid_value;
+		}
+		
 	}
 	
-		reflex end_simulation when:(time = 10#h) {
-		do pause;}	
+	reflex floodstatus {
+		if (ifl>=grid_value) {
+			isflooded <- true;
+		}
+	}
+	
 	
 }
 
@@ -57,8 +92,11 @@ species road {
 		if (passable = true) {
 					draw shape color:#black;			
 		}
-
 	}
+	
+	reflex updatestatus {
+
+	}		
 }
 
 species people skills:[moving] {
@@ -66,15 +104,25 @@ species people skills:[moving] {
 	building evacuation_center;
 	float speed <- 5#km/#h;
 	point target;
+	cell mycell;
+	bool roadflooded;
+	
+	
 	aspect people_display {
 		draw circle(8) color:#yellow;
 	}
 	
+	reflex ispassble {
+		
+	}
+		
 	reflex evacuate when: (time>=6#h)  {
 		//target <- any_location_in(evacuation_center);
 		do goto target:target on:road_network;
 		
 		}
+		
+	
 	}
 	
 
@@ -84,9 +132,11 @@ experiment bsevacuation type: gui {
 	output {
 
 		display map type: opengl{
+	 	 	species cell;			
 			species building aspect:geom;
 			species road aspect:geom;
 			species people aspect:people_display;
+						
 		}
 		
 	}
